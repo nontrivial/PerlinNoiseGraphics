@@ -19,6 +19,8 @@ public final class Samplers {
         double c01 = data[xi][yi+1];
         double c11 = data[xi+1][yi+1];
 
+
+
         double sx = smoothstep( 0, 1, tx );
         double sy = smoothstep( 0, 1, ty );
 

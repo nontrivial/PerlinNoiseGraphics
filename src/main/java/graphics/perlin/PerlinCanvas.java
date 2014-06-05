@@ -13,38 +13,57 @@ public class PerlinCanvas {
     //Image Information
     int width = 0;
     int height = 0;
+    int [] imgColorMap = null;
 
     //Noise Parameters
-    double scale = 1.0;
-    boolean shift = false;
+    double scale = 0.1;
+    boolean shift = true;
+    int noiseSize = 256;
 
     //Stroke Parameters
-    int particleCount = 500;
-    int trailLength = 50;
+    int particleCount = 1000;
+    int trailLength = 15;
     int thickness = 20;
     double maxAge = 1.0;
     double ageingSpeed = 1.0;
-    double alpha = 0.2;
+    float alpha = 0.15f;
     boolean motion = true;
-    //Brush shape?
 
     //Color Parameters
-    boolean darken = true;
+    boolean darken = false;
 
     //State Variables
     double time = 0.0;
     int step = 0;
     BufferedImage image = null;
     Graphics2D g = null;
-    SimplexNoise sn = new SimplexNoise(1.0);
+    SimplexNoise sn = new SimplexNoise(scale);
     Particle [] p = new Particle[particleCount];
 
     public void loadImage(String img) throws Exception {
         image = ImageIO.read(new File(img));
-        g = image.createGraphics();
+        g = (Graphics2D) image.getGraphics();
 
         width = image.getWidth();
         height = image.getHeight();
+
+        imgColorMap = image.getRGB(0,0,width, height,null,0,width);
+
+        initializeParticles();
+        initializeNoise();
+    }
+
+    private void initializeParticles() {
+        for (int i = 0; i < particleCount; i++) {
+            p[i] = new Particle();
+            p[i].reset(width, height);
+            p[i].random();
+        }
+    }
+
+    private void initializeNoise() {
+        sn.scale = this.scale;
+        sn.generateNoise(noiseSize);
     }
 
     public void paintNextFrame() {
@@ -53,7 +72,7 @@ public class PerlinCanvas {
 
         if (shift && (step % 20 == 0)) {
             sn.scale = this.scale;
-            sn.generateNoise(256);
+            sn.generateNoise(noiseSize);
         }
 
         for (int i = 0; i < particleCount; i++) {
@@ -63,10 +82,17 @@ public class PerlinCanvas {
                 p[i].y += p[i].dy;
             }
 
+            //If we have moved off the canvas we reset the particle
+            if (p[i].x >= width || p[i].y >= height || p[i].y < 0 || p[i].x < 0) {
+                p[i].reset(width, height);
+            }
+
             //Calculate new velocity
             int x = fastfloor(p[i].x);
             int y = fastfloor(p[i].y);
-            double noiseValue = Samplers.bilinear(sn.noiseMap, x, y);
+            double noiseValue = Samplers.bilinear(sn.noiseMap,
+                    (double)(x) * ((double)noiseSize - 1) / width,
+                    (double)(y) * ((double)noiseSize - 1) / height);
             //Converting noise to an angle
             double angle = noiseValue * Math.PI * 2;
             double vx = Math.cos(angle);
@@ -78,19 +104,39 @@ public class PerlinCanvas {
             p[i].dx /= p[i].dx * p[i].dx + p[i].dy * p[i].dy;
             p[i].dy /= p[i].dx * p[i].dx + p[i].dy * p[i].dy;
 
-            //If we have moved off the canvas we reset the particle
-            if (p[i].x > width || p[i].y > height || p[i].y < 0) {
-                p[i].reset(width, height);
-            }
+            //Setup drawing
+            BasicStroke bs = new BasicStroke((int)(thickness * (noiseValue/2.0 + 0.5)),
+                    BasicStroke.CAP_ROUND,
+                    BasicStroke.JOIN_ROUND);
+            int imageColor = imgColorMap[p[i].x + p[i].y * width];
+            Color imgColor = new Color(imageColor);
+            int red = imgColor.getRed();
+            int green = imgColor.getGreen();
+            int blue = imgColor.getBlue();
 
-            //Now comes the drawing
+            double darker = 0.2126 * ((double)red/255.0) +
+                    0.7152 * ((double)green/255.0) +
+                    0.0722 * ((double)blue/255.0);
 
+            double brightnessAdjustment = this.darken ? darker : 1.0;
 
+            Color c = new Color((float)(red * brightnessAdjustment)/255.0f,
+                    (float)(green * brightnessAdjustment)/255.0f,
+                    (float)(blue * brightnessAdjustment)/255.0f,
+                    alpha);
+            g.setColor(c);
+            g.setStroke(bs);
+
+            //Draw
+            double lineSize = trailLength * (noiseValue/2.0 + 0.5) * p[i].age;
+            double scaleFactor = lineSize / Math.sqrt(p[i].dx * p[i].dx + p[i].dy * p[i].dy);
+            g.drawLine(p[i].x, p[i].y, (int)(p[i].x + p[i].dx * scaleFactor), (int)(p[i].y + p[i].dy * scaleFactor));
 
             //Reset dead particles
             p[i].age += 0.1 * ageingSpeed * p[i].ageingSpeed;
             if (p[i].age >= maxAge) {
                 p[i].reset(width, height);
+                p[i].random();
             }
         }
     }
@@ -107,4 +153,3 @@ public class PerlinCanvas {
         return x<xi ? xi-1 : xi;
     }
 }
-//context.strokeStyle = 'hsl('+lerp(alpha, alpha-100, rot)+', '+(1-val)*lerp(0.2, 0.9, rot)*options.saturation*100+'%, '+(val)*lerp(0.45, 1, rot)*brightness*options.lightness*100+'%)';
